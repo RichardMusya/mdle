@@ -1,0 +1,226 @@
+---
+- name: Deploy Jenkins
+  hosts: all
+  become: yes
+
+  tasks:
+
+    # ---------------------------------------------------------
+    # Display Ansible environment information
+    # ---------------------------------------------------------
+
+    - name: Show inventory path
+      ansible.builtin.debug:
+        var: ansible_inventory_sources
+
+    - name: Show ansible limit
+      ansible.builtin.debug:
+        var: ansible_limit
+
+    - name: Show play hosts
+      ansible.builtin.debug:
+        var: ansible_play_hosts_all
+
+    - name: Show environment
+      ansible.builtin.debug:
+        var: ansible_env
+
+
+    # ---------------------------------------------------------
+    # Verify that the target is Ubuntu 20.04
+    # ---------------------------------------------------------
+
+    - name: Check operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('20.04', '==')
+        fail_msg: >
+          This playbook requires Ubuntu 20.04.
+          Detected {{ ansible_distribution }} {{ ansible_distribution_version }}.
+        success_msg: >
+          Ubuntu 20.04 detected.
+
+
+    # ---------------------------------------------------------
+    # Prepare APT keyrings directory
+    # ---------------------------------------------------------
+
+    - name: Create APT keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+
+    # ---------------------------------------------------------
+    # Jenkins repository signing key
+    # ---------------------------------------------------------
+
+    - name: Download Jenkins 2026 repository signing key
+      ansible.builtin.get_url:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+        dest: /etc/apt/keyrings/jenkins-keyring.asc
+        mode: '0644'
+        force: true
+
+
+    # ---------------------------------------------------------
+    # Add Jenkins LTS repository
+    # ---------------------------------------------------------
+
+    - name: Add Jenkins LTS repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
+        filename: jenkins
+        state: present
+        update_cache: false
+
+
+    # ---------------------------------------------------------
+    # Install prerequisites for Java 21
+    # ---------------------------------------------------------
+
+    - name: Install Java repository prerequisites
+      ansible.builtin.apt:
+        name:
+          - wget
+          - apt-transport-https
+          - gnupg
+          - ca-certificates
+        state: present
+        update_cache: true
+
+
+    # ---------------------------------------------------------
+    # Eclipse Adoptium Java 21 repository
+    # ---------------------------------------------------------
+
+    - name: Download Adoptium GPG key
+      ansible.builtin.shell:
+        cmd: >
+          wget -qO -
+          https://packages.adoptium.net/artifactory/api/gpg/key/public
+          | gpg --dearmor
+          | tee /etc/apt/trusted.gpg.d/adoptium.gpg
+          > /dev/null
+        creates: /etc/apt/trusted.gpg.d/adoptium.gpg
+
+
+    - name: Add Eclipse Adoptium repository
+      ansible.builtin.apt_repository:
+        repo: "deb https://packages.adoptium.net/artifactory/deb focal main"
+        filename: adoptium
+        state: present
+        update_cache: true
+
+
+    # ---------------------------------------------------------
+    # Install Java 21
+    # ---------------------------------------------------------
+
+    - name: Install Java 21
+      ansible.builtin.apt:
+        name: temurin-21-jre
+        state: present
+        update_cache: true
+
+
+    # ---------------------------------------------------------
+    # Configure Java 21 as the default Java
+    # ---------------------------------------------------------
+
+    - name: Set Java 21 as default
+      ansible.builtin.shell:
+        cmd: update-alternatives --set java /usr/lib/jvm/temurin-21-jre-amd64/bin/java
+      register: java_alternative
+      changed_when: false
+
+
+    # ---------------------------------------------------------
+    # Verify Java installation
+    # ---------------------------------------------------------
+
+    - name: Check Java version
+      ansible.builtin.command:
+        cmd: java -version
+      register: java_version
+      changed_when: false
+
+    - name: Show Java version
+      ansible.builtin.debug:
+        var: java_version.stderr_lines
+
+
+    # ---------------------------------------------------------
+    # Refresh APT repositories
+    # ---------------------------------------------------------
+
+    - name: Update APT package cache
+      ansible.builtin.apt:
+        update_cache: true
+
+
+    # ---------------------------------------------------------
+    # Install Jenkins
+    # ---------------------------------------------------------
+
+    - name: Install Jenkins
+      ansible.builtin.apt:
+        name: jenkins
+        state: present
+        update_cache: true
+
+
+    # ---------------------------------------------------------
+    # Start and enable Jenkins
+    # ---------------------------------------------------------
+
+    - name: Start and enable Jenkins
+      ansible.builtin.systemd:
+        name: jenkins
+        state: started
+        enabled: true
+
+
+    # ---------------------------------------------------------
+    # Get Jenkins service status
+    # ---------------------------------------------------------
+
+    - name: Get Jenkins status
+      ansible.builtin.command:
+        cmd: systemctl is-active jenkins
+      register: jenkins_status
+      changed_when: false
+
+
+    # ---------------------------------------------------------
+    # Show Jenkins status
+    # ---------------------------------------------------------
+
+    - name: Show Jenkins status
+      ansible.builtin.debug:
+        msg: "Jenkins service status: {{ jenkins_status.stdout }}"
+
+
+    # ---------------------------------------------------------
+    # Display Jenkins information
+    # ---------------------------------------------------------
+
+    - name: Get Jenkins version
+      ansible.builtin.command:
+        cmd: dpkg-query -W -f='${Version}' jenkins
+      register: jenkins_version
+      changed_when: false
+
+    - name: Show Jenkins version
+      ansible.builtin.debug:
+        msg: "Installed Jenkins version: {{ jenkins_version.stdout }}"
+
+
+    - name: Show Jenkins access information
+      ansible.builtin.debug:
+        msg:
+          - "Jenkins has been installed successfully."
+          - "Jenkins URL: http://{{ ansible_host | default(inventory_hostname) }}:8080"
+          - "Initial password: sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
