@@ -224,3 +224,11 @@
           - "Jenkins has been installed successfully."
           - "Jenkins URL: http://{{ ansible_host | default(inventory_hostname) }}:8080"
           - "Initial password: sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
+
+
+
+sudo jenkins-plugin-cli --plugins \
+git \
+github \
+workflow-aggregator \
+credentials-binding
