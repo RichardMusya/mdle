@@ -232,3 +232,589 @@ git \
 github \
 workflow-aggregator \
 credentials-binding
+
+
+Yes. Since you want to **start Lab #2 completely afresh**, we should first clean out the previous Ansible/Jenkins setup, then rebuild it **exactly around the lab instructions** and capture the required screenshots as we go.
+
+The lab explicitly requires **Ubuntu 20.04** and uses Ansible to create a Jenkins/Java CI environment.  It also specifically requires installing Ansible, configuring `/etc/ansible/hosts`, testing SSH/Ansible, installing `sshpass`, configuring SSH keys, installing the `lean_delivery.jenkins` Galaxy role, cloning the lab repository, and finally running `ci-infrastructure.yml`.  
+
+### Important point about your Jenkins problem
+
+The lab's final step expects you to reach Jenkins at `http://localhost:8080` and then install the common Jenkins plugins. 
+
+Since your previous Jenkins installation **could not install plugins**, I recommend that we **do not immediately reinstall Jenkins and start clicking around**. We will first make sure:
+
+1. Ubuntu 20.04 is actually being used.
+2. The old Jenkins installation/configuration is removed.
+3. Ansible is installed cleanly.
+4. SSH to localhost works without a password.
+5. Ansible itself works.
+6. Ansible Galaxy can download the required role.
+7. The lab repository can be cloned.
+8. The Ansible playbook can install Java/Jenkins successfully.
+9. Jenkins starts correctly.
+10. Jenkins has working internet/plugin connectivity **before we attempt the common-plugin installation**.
+
+That will also make your screenshots much easier to organize.
+
+## Fresh Lab #2 procedure
+
+I suggest we do this in **phases**, rather than giving you 50 commands at once.
+
+### Phase 1 — Completely remove the previous installation
+
+On your **Ubuntu 20.04 VM**, run:
+
+```bash
+sudo systemctl stop jenkins 2>/dev/null || true
+sudo systemctl disable jenkins 2>/dev/null || true
+```
+
+Then remove Jenkins:
+
+```bash
+sudo apt-get purge -y jenkins
+sudo apt-get autoremove -y
+```
+
+Remove the Jenkins data/configuration:
+
+```bash
+sudo rm -rf /var/lib/jenkins
+sudo rm -rf /var/cache/jenkins
+sudo rm -rf /var/log/jenkins
+sudo rm -rf /etc/default/jenkins
+sudo rm -rf /etc/sysconfig/jenkins
+```
+
+Remove Jenkins repository files/keyrings that may have been created during your previous attempts:
+
+```bash
+sudo rm -f /etc/apt/sources.list.d/jenkins.list
+sudo rm -f /etc/apt/sources.list.d/jenkins.sources
+sudo rm -f /usr/share/keyrings/jenkins-keyring.asc
+sudo rm -f /usr/share/keyrings/jenkins-keyring.gpg
+```
+
+Then:
+
+```bash
+sudo apt-get update
+```
+
+Check that Jenkins is gone:
+
+```bash
+dpkg -l | grep -i jenkins
+```
+
+Ideally, this should return **nothing**.
+
+Also check whether anything is still listening on Jenkins' port:
+
+```bash
+sudo ss -ltnp | grep ':8080'
+```
+
+Again, ideally **no output**.
+
+---
+
+## Phase 2 — Clean the previous Ansible installation
+
+Check what you currently have:
+
+```bash
+ansible --version
+```
+
+and:
+
+```bash
+python3 -m pip show ansible
+```
+
+If Ansible was installed with the lab's user-local method, remove it:
+
+```bash
+python3 -m pip uninstall -y ansible ansible-core
+```
+
+Also remove any old Galaxy role:
+
+```bash
+rm -rf ~/.ansible/roles/lean_delivery.jenkins
+```
+
+And remove the previous lab repository if you want a genuinely clean copy:
+
+```bash
+rm -rf ~/Projects/MSES602_ansible
+```
+
+We can recreate it later with:
+
+```bash
+git clone https://github.com/RegisUniversity/MSES602_ansible.git
+```
+
+which is the repository specified by the lab. 
+
+---
+
+# Phase 3 — Verify the VM before installing anything
+
+This is **very important** because your lab explicitly says Ubuntu 20.04.
+
+Run:
+
+```bash
+lsb_release -a
+```
+
+and:
+
+```bash
+cat /etc/os-release
+```
+
+We want to see:
+
+```text
+Ubuntu
+20.04
+focal
+```
+
+Also run:
+
+```bash
+python3 --version
+```
+
+```bash
+git --version
+```
+
+```bash
+ssh -V
+```
+
+and:
+
+```bash
+sudo systemctl status ssh --no-pager
+```
+
+If SSH isn't installed/running, we'll fix that before touching Ansible.
+
+---
+
+# Phase 4 — Install Ansible according to the lab
+
+The lab specifically instructs:
+
+```bash
+python3 -m pip install --user ansible
+```
+
+and then requires `~/.local/bin` to be added to `PATH`. 
+
+We'll follow that rather than introducing a completely different Ansible installation method.
+
+First:
+
+```bash
+sudo apt-get update
+```
+
+Then make sure pip is available:
+
+```bash
+sudo apt-get install -y python3-pip
+```
+
+Then:
+
+```bash
+python3 -m pip install --user ansible
+```
+
+Add the required PATH:
+
+```bash
+echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
+```
+
+Reload it:
+
+```bash
+source ~/.bashrc
+```
+
+Then verify:
+
+```bash
+ansible --version
+```
+
+You should get an Ansible version rather than:
+
+```text
+command not found
+```
+
+---
+
+# Phase 5 — Configure the Ansible inventory
+
+The lab requires:
+
+```text
+/etc/ansible/hosts
+```
+
+and specifically asks you to create the directory and add:
+
+```text
+# localhost
+127.0.0.1
+```
+
+
+
+Run:
+
+```bash
+sudo mkdir -p /etc/ansible
+```
+
+Then:
+
+```bash
+sudo nano /etc/ansible/hosts
+```
+
+Put:
+
+```ini
+# localhost
+127.0.0.1
+```
+
+Save with:
+
+**Ctrl+O → Enter → Ctrl+X**
+
+Test:
+
+```bash
+ansible all --list-hosts
+```
+
+You should see something equivalent to:
+
+```text
+hosts (1):
+    127.0.0.1
+```
+
+### 📸 Screenshot 1
+
+Capture the terminal showing:
+
+```bash
+ansible all --list-hosts
+```
+
+This is a good screenshot for the lab report.
+
+---
+
+# Phase 6 — Test Ansible/SSH before proceeding
+
+Now run exactly what the lab asks:
+
+```bash
+ansible 127.0.0.1 -k -m ping
+```
+
+The lab actually expects this initial test to fail because `sshpass` has not yet been installed. 
+
+Then install:
+
+```bash
+sudo apt-get update
+sudo apt-get -y install sshpass
+```
+
+Now retry:
+
+```bash
+ansible 127.0.0.1 -k -m ping
+```
+
+Enter the VM password.
+
+We want:
+
+```text
+127.0.0.1 | SUCCESS => {
+    ...
+    "ping": "pong"
+}
+```
+
+### 📸 Screenshot 2
+
+Capture the successful:
+
+```bash
+ansible 127.0.0.1 -k -m ping
+```
+
+---
+
+# Phase 7 — Configure passwordless SSH
+
+Generate the key:
+
+```bash
+ssh-keygen -t rsa
+```
+
+When prompted, simply press **Enter** through the questions, as the lab specifies. 
+
+Then copy the key to localhost:
+
+```bash
+ssh-copy-id -i ~/.ssh/id_rsa.pub osboxes@127.0.0.1
+```
+
+Enter:
+
+```text
+osboxes.org
+```
+
+as the password if your VM still uses the lab's default credentials.
+
+Then test SSH:
+
+```bash
+ssh 127.0.0.1
+```
+
+If it logs you in without asking for the password, type:
+
+```bash
+exit
+```
+
+Now test Ansible without `-k`:
+
+```bash
+ansible 127.0.0.1 -m ping
+```
+
+This should succeed without requesting a password, which is the purpose of the SSH-key portion of the exercise. 
+
+### 📸 Screenshot 3
+
+Capture:
+
+```bash
+ansible 127.0.0.1 -m ping
+```
+
+showing:
+
+```text
+"ping": "pong"
+```
+
+---
+
+# Phase 8 — Install the Jenkins Ansible role
+
+The lab requires:
+
+```bash
+ansible-galaxy install lean_delivery.jenkins
+```
+
+
+
+Run:
+
+```bash
+ansible-galaxy install lean_delivery.jenkins
+```
+
+Then verify:
+
+```bash
+ansible-galaxy list
+```
+
+We want to see:
+
+```text
+lean_delivery.jenkins
+```
+
+### 📸 Screenshot 4
+
+Capture the successful Galaxy installation.
+
+---
+
+# Phase 9 — Download the lab repository
+
+Create the Projects directory:
+
+```bash
+mkdir -p ~/Projects
+```
+
+Then:
+
+```bash
+cd ~/Projects
+```
+
+Clone:
+
+```bash
+git clone https://github.com/RegisUniversity/MSES602_ansible.git
+```
+
+Enter the playbooks directory:
+
+```bash
+cd MSES602_ansible/playbooks
+```
+
+Confirm:
+
+```bash
+ls -la
+```
+
+The lab specifically tells you to verify that:
+
+```text
+ci-infrastructure.yml
+```
+
+exists. 
+
+Run:
+
+```bash
+ls -l ci-infrastructure.yml
+```
+
+---
+
+# Phase 10 — Before installing Jenkins
+
+This is where I want to be more careful than your previous attempt.
+
+**Do not run the Jenkins playbook yet.**
+
+First we'll inspect:
+
+```bash
+cat ci-infrastructure.yml
+```
+
+and:
+
+```bash
+ansible-inventory --list
+```
+
+Then we will verify the Ansible roles and the repository configuration.
+
+This matters because the lab's playbook is responsible for installing Java and Jenkins. 
+
+After those checks, we'll run:
+
+```bash
+ansible-playbook ci-infrastructure.yml --ask-become-pass
+```
+
+as specified by the lab. 
+
+---
+
+## Then we deal with the Jenkins plugin problem
+
+Once Jenkins is installed, we'll **not assume that plugin installation will work**.
+
+We'll first test:
+
+```bash
+sudo systemctl status jenkins --no-pager
+```
+
+then:
+
+```bash
+curl -I http://localhost:8080
+```
+
+and inspect the Jenkins logs:
+
+```bash
+sudo journalctl -u jenkins -n 100 --no-pager
+```
+
+We'll also test outbound HTTPS from the VM:
+
+```bash
+curl -I https://updates.jenkins.io
+```
+
+and:
+
+```bash
+curl -I https://plugins.jenkins.io
+```
+
+If those work but Jenkins still cannot install plugins, we'll diagnose the Jenkins update-center/proxy/certificate configuration rather than randomly reinstalling plugins.
+
+The lab's expected final state is Jenkins accessible at:
+
+```text
+http://localhost:8080
+```
+
+followed by the common-plugin installation and inspection under **Manage Jenkins → Manage Plugins → Installed**. 
+
+---
+
+### Let's do it one phase at a time
+
+**Start with Phase 1 and Phase 2 only.** On the Ubuntu 20.04 VM, run the cleanup commands above, then send me the output of:
+
+```bash
+dpkg -l | grep -i jenkins
+```
+
+```bash
+sudo ss -ltnp | grep ':8080'
+```
+
+```bash
+ansible --version
+```
+
+and:
+
+```bash
+lsb_release -a
+```
+
+From there, I'll take you through the **fresh Lab #2 installation step-by-step**, including exactly **which terminal/browser screens to screenshot for the submission**.
